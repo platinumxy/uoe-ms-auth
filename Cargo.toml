@@ -4,3 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+rpassword = "7.5.4"
+thirtyfour = "0.37.5"
+tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
+
+[features]
+default = ["dbg", "show-browser"] 
+dbg = []
+show-browser = []
+no-logging = []
