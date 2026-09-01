@@ -1,6 +1,7 @@
 use crate::{dbg, if_logging};
 use thirtyfour::{By, WebDriver, error::WebDriverError};
 
+use crate::ms_handlers::*;
 /// We manage the authentication flow as a state machine for the differnt stages that the user may
 /// need to be prompted to do things / preform actions,
 ///
@@ -15,7 +16,7 @@ pub enum AuthState {
         password: Option<String>,
     },
     AuthSpooling,
-    ApproveSigninCode(u64),
+    ApproveAppNotif(u64),
     AwaitingPhoneCode(Option<u64>),
     Failure,
     FailureUserPassword,
@@ -28,10 +29,7 @@ impl AuthState {
     }
 }
 
-pub async fn step_auth_sm<'a>(
-    driver: &WebDriver,
-    state: AuthState,
-) -> Result<AuthState, Error> {
+pub async fn step_auth_sm<'a>(driver: &WebDriver, state: AuthState) -> Result<AuthState, Error> {
     use AuthState::*;
 
     match state {
@@ -39,9 +37,7 @@ pub async fn step_auth_sm<'a>(
         CredsPrompt { username, password } => {
             handler_creds_prompt(driver, username, password).await
         }
-        ApproveSigninCode(code_for_phone) => {
-            handler_approve_sigin_code(driver, code_for_phone).await
-        }
+        ApproveAppNotif(code_for_phone) => handler_phone_notification(driver, code_for_phone).await,
         AwaitingPhoneCode(code_from_phone) => {
             handler_awaiting_phone_code(driver, code_from_phone).await
         }
@@ -119,17 +115,6 @@ async fn handler_creds_prompt(
         .await?;
     dbg::log!("[creds_prmt] inputed password");
 
-    //driver Appears as defaults to onn and the user cannot see it ?
-    //     .find(By::Id("kmsiInput"))
-    //     .await
-    //     .map_err(|e| {
-    //         if_logging!(eprintln!("Couldn't find the keep me signed in button"));
-    //         e
-    //     })?
-    //     .click()
-    //     .await?;
-    // dbg::log!("[creds_prmt] clicked keep me signed in");
-
     driver
         .find(By::Id("submitButton"))
         .await
@@ -151,33 +136,4 @@ async fn handler_creds_prompt(
     }
 
     Ok(AuthState::AuthSpooling)
-}
-
-async fn handler_auth_spooling(driver: &WebDriver) -> Result<AuthState, Error> {
-    dbg::current_url(driver).await;
-    Ok(AuthState::AuthSpooling)
-}
-
-async fn handler_approve_sigin_code(
-    driver: &WebDriver,
-    code_for_phone: u64,
-) -> Result<AuthState, Error> {
-    dbg::log!("Approve this signin code");
-    // Poll to see if the browser recognised us having signed in
-    Ok(AuthState::Failure)
-}
-
-async fn handler_awaiting_phone_code(
-    driver: &WebDriver,
-    code_from_phone: Option<u64>,
-) -> Result<AuthState, Error> {
-    dbg::log!("Waiting for code input");
-    if code_from_phone.is_none() {
-        dbg::log!(
-            "Not recived a code, should possibly return a failure state instead? Or we can still leave it to the caller"
-        );
-        return Ok(AuthState::AwaitingPhoneCode(None));
-    }
-
-    Ok(AuthState::Failure)
 }

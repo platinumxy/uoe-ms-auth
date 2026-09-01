@@ -218,6 +218,8 @@ Please note that they're not the only fields in the submit they're just the ones
 
 This should then auto flow through some backend verification before dumping us back out onto exam papers page 
 
+We may get a stale auth  `<h1>Web Login Service - Stale Request</h1>`
+
 TODO! Document the post kmsi button
 
 # Touched domains 

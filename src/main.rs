@@ -3,7 +3,12 @@ use std::io::{self, Write};
 use thirtyfour::prelude::*;
 mod auth_flow;
 mod dbg;
+mod disable_webauth;
+
+pub mod ms_handlers;
+
 use auth_flow::AuthState;
+use disable_webauth::get_extension_path;
 
 #[tokio::main]
 async fn main() {
@@ -16,10 +21,9 @@ async fn main() {
 
     let mut state = AuthState::Init;
 
-
     while !state.exit_state() {
-        // See if we need to prompt the user for the state machine 
-        match &state {  
+        // See if we need to prompt the user for the state machine
+        match &state {
             AuthState::CredsPrompt {
                 username: _,
                 password: _,
@@ -30,14 +34,17 @@ async fn main() {
                     password: Some(pass),
                 }
             }
-            _ => (), 
+            AuthState::ApproveAppNotif(number) => {
+                println!("Please approve the signin request for code: {}", number)
+            }
+            _ => (),
         };
-
 
         state = auth_flow::step_auth_sm(&driver, state).await.unwrap();
     }
 
     if_logging!(println!("Exit state {:?}", state));
+    io::stdin().read_line(&mut String::new());
 }
 
 macro_rules! if_logging {
@@ -71,7 +78,13 @@ fn get_creds() -> (String, String) {
 
 async fn create_driver() -> Result<WebDriver, WebDriverError> {
     let mut caps = DesiredCapabilities::chrome(); //TODO: See if we can auth find a browser to skip
-    //download
+
+    let (ext_path, _guard) =
+        get_extension_path().expect("Could not create dissable webauth plugin"); // TODO
+    // remove
+    // exepct
+    dbg::log!("[init] Extension path: {}", ext_path.display());
+    caps.add_arg(&format!("--load-extension={}", ext_path.display()))?;
 
     #[cfg(not(feature = "show-browser"))]
     if let Err(err) = caps.set_headless() {
