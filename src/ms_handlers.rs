@@ -139,7 +139,7 @@ pub async fn handler_phone_notification(driver: &WebDriver, otc: u64) -> Result<
         "Couldn't check the phone notification state",
     ) != Ms2faStates::PhoneAppNotification
     {
-        dbg::log!("Code has been accepted or rejected");
+        dbg::log!("[phone_notif] Code has been accepted or rejected");
         sleep(Duration::from_secs(1)).await;
         return Ok(AuthState::AuthSpooling);
     }
@@ -174,6 +174,6 @@ pub async fn handler_phone_otp(
     );
     await_with_err_log!(button.click(), "Couldn't click the OTP continue button");
 
-    sleep(Duration::from_secs(2)).await;
+    sleep(Duration::from_millis(250)).await;
     Ok(AuthState::AuthSpooling)
 }

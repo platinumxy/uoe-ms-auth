@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{future::Future, time::Duration};
 
 use crate::{dbg, if_logging, utils::await_with_err_log};
 use thirtyfour::{By, WebDriver, error::WebDriverError};
@@ -40,11 +40,34 @@ pub async fn step_auth_sm<'a>(driver: &WebDriver, state: AuthState) -> Result<Au
         CredsPrompt { username, password } => {
             handler_creds_prompt(driver, username, password).await
         }
-        ApproveAppNotif(code_for_phone) => handler_phone_notification(driver, code_for_phone).await,
-        PhoneOTP(otp) => handler_phone_otp(driver, otp).await,
-        AuthSpooling => handler_auth_spooling(driver).await,
+        ApproveAppNotif(code_for_phone) => {
+            retry_ms_handler(|| handler_phone_notification(driver, code_for_phone)).await
+        }
+        PhoneOTP(otp) => retry_ms_handler(|| handler_phone_otp(driver, otp.clone())).await,
+        AuthSpooling => retry_ms_handler(|| handler_auth_spooling(driver)).await,
         Failure | FailureUserPassword | Authenticated => Ok(state), // shouldn't be called with a finished state but if we are
     }
+}
+
+async fn retry_ms_handler<F, Fut>(mut handler: F) -> Result<AuthState, Error>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<AuthState, Error>>,
+{
+    const MAX_ATTEMPTS: u8 = 3;
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        match handler().await {
+            Ok(state) => return Ok(state),
+            Err(_) if attempt == MAX_ATTEMPTS => return Ok(AuthState::Failure),
+            Err(_) => {
+                sleep(Duration::from_millis(250)).await;
+                continue;
+            }
+        }
+    }
+
+    Ok(AuthState::Failure)
 }
 
 async fn handler_init(driver: &WebDriver) -> Result<AuthState, Error> {
@@ -65,6 +88,10 @@ async fn handler_init(driver: &WebDriver) -> Result<AuthState, Error> {
     let domain = url.domain().unwrap_or("");
     let path = url.path();
     dbg::log!("[init] waiting on url.domain={} url.path={}", domain, path);
+
+    if domain == "exampapers.ed.ac.uk" {
+        return Ok(AuthState::Authenticated);
+    }
 
     if domain == "edadfed.ed.ac.uk" || path == "/adfs/ls/" {
         Ok(AuthState::CredsPrompt {
@@ -132,7 +159,7 @@ async fn handler_creds_prompt(
         ));
         return Ok(AuthState::FailureUserPassword);
     }
-    sleep(Duration::from_secs(1)).await;
+    sleep(Duration::from_millis(250)).await;
 
     Ok(AuthState::AuthSpooling)
 }
