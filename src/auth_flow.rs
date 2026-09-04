@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::{dbg, if_logging};
+use crate::{dbg, if_logging, utils::await_with_err_log};
 use thirtyfour::{By, WebDriver, error::WebDriverError};
 use tokio::time::sleep;
 
@@ -51,13 +51,16 @@ async fn handler_init(driver: &WebDriver) -> Result<AuthState, Error> {
     dbg::log!("[init] Start init handler");
 
     if_logging!(println!("Trying to get https://exampapers.ed.ac.uk/ ..."));
-    driver
-        .goto("https://exampapers.ed.ac.uk/")
-        .await
-        .expect("Could not fetch https://exampapers.ed.ac.uk/");
+    await_with_err_log!(
+        driver.goto("https://exampapers.ed.ac.uk/"),
+        "Couldn't fetch https://exampapers.ed.ac.uk/",
+    );
     // we expect to be on exampapers.ed.ac.uk meaning were already authed OR https://edadfed.ed.ac.uk/adfs/ls/
 
-    let url = driver.current_url().await?;
+    let url = await_with_err_log!(
+        driver.current_url(),
+        "Couldn't get the current URL after initialization",
+    );
 
     let domain = url.domain().unwrap_or("");
     let path = url.path();
@@ -94,40 +97,34 @@ async fn handler_creds_prompt(
     }
     let (username, password) = (username.unwrap(), password.unwrap());
 
-    driver
-        .find(By::Id("userNameInput"))
-        .await
-        .map_err(|e| {
-            if_logging!(eprintln!("Couldn't find username input field"));
-            e
-        })?
-        .send_keys(username)
-        .await?;
+    await_with_err_log!(
+        driver.find(By::Id("userNameInput")),
+        "Couldn't find username input field",
+    )
+    .send_keys(username)
+    .await?;
     dbg::log!("[creds_prmt] inputed username");
 
-    driver
-        .find(By::Id("passwordInput"))
-        .await
-        .map_err(|e| {
-            if_logging!(eprintln!("Couldn't find password input field"));
-            e
-        })?
-        .send_keys(password)
-        .await?;
+    await_with_err_log!(
+        driver.find(By::Id("passwordInput")),
+        "Couldn't find password input field",
+    )
+    .send_keys(password)
+    .await?;
     dbg::log!("[creds_prmt] inputed password");
 
-    driver
-        .find(By::Id("submitButton"))
-        .await
-        .map_err(|e| {
-            if_logging!(eprintln!("Couldn't find the submit button"));
-            e
-        })?
-        .click()
-        .await?;
+    await_with_err_log!(
+        driver.find(By::Id("submitButton")),
+        "Couldn't find the submit button",
+    )
+    .click()
+    .await?;
     dbg::log!("[creds_prmt] clicked submit");
 
-    let url = driver.current_url().await?;
+    let url = await_with_err_log!(
+        driver.current_url(),
+        "Couldn't get the current URL after submitting credentials",
+    );
     dbg::log!("[creds_prmt] submission took us too {}", url);
     if url.as_str() != "https://login.microsoftonline.com/login.srf" {
         if_logging!(eprintln!(

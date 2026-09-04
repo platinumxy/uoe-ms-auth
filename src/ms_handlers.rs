@@ -1,8 +1,9 @@
 use crate::{
     auth_flow::{AuthState, Error},
     dbg, if_logging,
+    utils::await_with_err_log,
 };
-use thirtyfour::{By, WebDriver, extensions::query::ElementQueryable};
+use thirtyfour::{By, WebDriver, error::WebDriverError, extensions::query::ElementQueryable};
 use tokio::time::{Duration, sleep};
 
 #[derive(PartialEq, Eq)]
@@ -18,8 +19,6 @@ pub enum Ms2faStates {
     Unknown,
 }
 
-/// TODO go through and add acc error handling into all the ms auth code
-
 pub async fn handler_auth_spooling(driver: &WebDriver) -> Result<AuthState, Error> {
     use Ms2faStates::*;
     dbg::log!("[auth_spool] auth spooling");
@@ -27,43 +26,47 @@ pub async fn handler_auth_spooling(driver: &WebDriver) -> Result<AuthState, Erro
     match determin_2fa_state(driver).await? {
         TrustWebsite => {
             dbg::log!("[auth_spool][trust_site] trusting ed.ac.uk");
-            driver
-                .find(By::Id("idSIButton9"))
-                .await
-                .map_err(|e| {
-                    if_logging!(eprintln!("Couldn't find the trust ed.ac.uk button"));
-                    e
-                })?
-                .click()
-                .await?;
+            let button = await_with_err_log!(
+                driver.find(By::Id("idSIButton9")),
+                "Couldn't find the trust ed.ac.uk button",
+            );
+            await_with_err_log!(button.click(), "Couldn't click the trust ed.ac.uk button");
             sleep(Duration::from_millis(250)).await; // give time for js to update
             Ok(AuthState::AuthSpooling)
         }
         ChooseVerificationOption => {
             dbg::log!("[auth_spool][choose_ver_opt] init");
             //todo check we can acc do phone otp
-            driver
-                .find(By::XPath("//div[@data-value='PhoneAppNotification']"))
-                .await?
-                .click()
-                .await?;
+            let option = await_with_err_log!(
+                driver.find(By::XPath("//div[@data-value='PhoneAppNotification']")),
+                "Couldn't find the phone notification option",
+            );
+            await_with_err_log!(
+                option.click(),
+                "Couldn't click the phone notification option",
+            );
             dbg::log!("[auth_spool][choose_ver_opt] Clicked PhoneAppOTP");
             sleep(Duration::from_secs(3)).await;
             Ok(AuthState::AuthSpooling)
         }
         PhoneAppNotification => {
             dbg::log!("[auth_spool][phone notif] reading code ");
-            let approval_code = driver
-                .find(By::Id("idRichContext_DisplaySign"))
-                .await?
-                .text()
-                .await?;
+            let approval_element = await_with_err_log!(
+                driver.find(By::Id("idRichContext_DisplaySign")),
+                "Couldn't find the phone approval code",
+            );
+            let approval_code = await_with_err_log!(
+                approval_element.text(),
+                "Couldn't read the phone approval code",
+            );
             dbg::log!("[auth_spool][phone notif] approval_code={}", approval_code);
-            Ok(AuthState::ApproveAppNotif(
-                approval_code
-                    .parse::<u64>()
-                    .expect("Todo handle if not number"),
-            ))
+            match approval_code.parse::<u64>() {
+                Ok(code) => Ok(AuthState::ApproveAppNotif(code)),
+                Err(_) => {
+                    if_logging!(eprintln!("The phone approval code was not a number"));
+                    Ok(AuthState::Failure)
+                }
+            }
         }
         PhoneOTP => {
             dbg::log!("[auth_spool][phoneOTP] Entering the OTP from a phone");
@@ -71,7 +74,11 @@ pub async fn handler_auth_spooling(driver: &WebDriver) -> Result<AuthState, Erro
         }
         StaySignedIn => {
             dbg::log!("[auth_spool][stay_singed_in] telling it to stay signed in");
-            driver.find(By::Id("idSIButton9")).await?.click().await?;
+            let button = await_with_err_log!(
+                driver.find(By::Id("idSIButton9")),
+                "Couldn't find the stay signed-in button",
+            );
+            await_with_err_log!(button.click(), "Couldn't click the stay signed-in button");
             Ok(AuthState::Authenticated) // TODO acc check we are authed 
         }
         Unknown => Ok(AuthState::Failure),
@@ -80,13 +87,22 @@ pub async fn handler_auth_spooling(driver: &WebDriver) -> Result<AuthState, Erro
 }
 
 async fn determin_2fa_state(driver: &WebDriver) -> Result<Ms2faStates, Error> {
-    let first_form = driver.query(By::Tag("form")).first().await?;
+    let first_form = await_with_err_log!(
+        driver.query(By::Tag("form")).first(),
+        "Couldn't find the authentication form",
+    );
 
-    let action = first_form
-        .prop("action")
-        .await
-        .expect("TODO should be more resilient")
-        .expect("TODO should be more resilient");
+    let action = await_with_err_log!(
+        first_form.prop("action"),
+        "Couldn't read the authentication form action",
+    )
+    .ok_or_else(|| {
+        WebDriverError::NotFound("form action".to_string(), "property was empty".to_string())
+    })
+    .map_err(|e| {
+        if_logging!(eprintln!("The authentication form has no action property"));
+        e
+    })?;
     dbg::log!("[auth_spool] determin poss form action={:?}", action);
 
     match action.as_str() {
@@ -118,7 +134,11 @@ async fn determin_2fa_state(driver: &WebDriver) -> Result<Ms2faStates, Error> {
 pub async fn handler_phone_notification(driver: &WebDriver, otc: u64) -> Result<AuthState, Error> {
     dbg::log!("[phone_notif] checking were still waiting");
 
-    if determin_2fa_state(driver).await? != Ms2faStates::PhoneAppNotification {
+    if await_with_err_log!(
+        determin_2fa_state(driver),
+        "Couldn't check the phone notification state",
+    ) != Ms2faStates::PhoneAppNotification
+    {
         dbg::log!("Code has been accepted or rejected");
         sleep(Duration::from_secs(1)).await;
         return Ok(AuthState::AuthSpooling);
@@ -142,17 +162,17 @@ pub async fn handler_phone_otp(
     let otp = otp.unwrap();
 
     //TODO improve the handling here
-    driver
-        .find(By::Id("idTxtBx_SAOTCC_OTC"))
-        .await?
-        .send_keys(otp)
-        .await?;
+    let input = await_with_err_log!(
+        driver.find(By::Id("idTxtBx_SAOTCC_OTC")),
+        "Couldn't find the phone OTP input field",
+    );
+    await_with_err_log!(input.send_keys(otp), "Couldn't enter the phone OTP");
 
-    driver
-        .find(By::Id("idSubmit_SAOTCC_Continue"))
-        .await?
-        .click()
-        .await?;
+    let button = await_with_err_log!(
+        driver.find(By::Id("idSubmit_SAOTCC_Continue")),
+        "Couldn't find the OTP continue button",
+    );
+    await_with_err_log!(button.click(), "Couldn't click the OTP continue button");
 
     sleep(Duration::from_secs(2)).await;
     Ok(AuthState::AuthSpooling)

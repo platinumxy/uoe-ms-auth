@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use serde_json::json;
 use thirtyfour::prelude::*;
 
@@ -13,6 +15,29 @@ macro_rules! if_logging {
     };
 }
 pub(crate) use if_logging;
+
+pub(crate) async fn await_with_error_logging_async<T, F>(
+    operation: F,
+    message: &str,
+) -> Result<T, WebDriverError>
+where
+    F: Future<Output = Result<T, WebDriverError>>,
+{
+    operation.await.map_err(|error| {
+        if_logging!(eprintln!("{}", message));
+        error
+    })
+}
+
+macro_rules! await_with_err_log {
+    ($operation:expr, $message:expr $(,)?) => {{
+        match $crate::utils::await_with_error_logging_async($operation, $message).await {
+            Ok(value) => value,
+            Err(error) => return Err(error),
+        }
+    }};
+}
+pub(crate) use await_with_err_log;
 
 pub async fn create_driver() -> Result<WebDriver, WebDriverError> {
     let mut caps = DesiredCapabilities::chrome(); //TODO: See if we can auth find a browser to skip
