@@ -2,7 +2,7 @@ use crate::{
     auth_flow::{AuthState, Error},
     dbg, if_logging,
 };
-use thirtyfour::{By, WebDriver, error::WebDriverError, extensions::query::ElementQueryable};
+use thirtyfour::{By, WebDriver, extensions::query::ElementQueryable};
 use tokio::time::{Duration, sleep};
 
 #[derive(PartialEq, Eq)]
@@ -12,7 +12,7 @@ pub enum Ms2faStates {
     CouldntPasskey,
     ChooseVerificationOption,
     PhoneAppNotification,
-    GetCodeFromPhone,
+    PhoneOTP,
     IncorrectCode,
     StaySignedIn,
     Unknown,
@@ -65,6 +65,10 @@ pub async fn handler_auth_spooling(driver: &WebDriver) -> Result<AuthState, Erro
                     .expect("Todo handle if not number"),
             ))
         }
+        PhoneOTP => {
+            dbg::log!("[auth_spool][phoneOTP] Entering the OTP from a phone");
+            Ok(AuthState::PhoneOTP(None)) // we have to wait for the user to give us a code
+        }
         StaySignedIn => {
             dbg::log!("[auth_spool][stay_singed_in] telling it to stay signed in");
             driver.find(By::Id("idSIButton9")).await?.click().await?;
@@ -89,13 +93,17 @@ async fn determin_2fa_state(driver: &WebDriver) -> Result<Ms2faStates, Error> {
         "https://login.microsoftonline.com/appverify" => return Ok(Ms2faStates::TrustWebsite),
         "https://login.microsoftonline.com/kmsi" => return Ok(Ms2faStates::StaySignedIn),
         "https://login.microsoftonline.com/common/SAS/ProcessAuth" => {
-            let is_displaying_code = driver
+            let is_notification = driver
                 .find(By::Id("idRichContext_DisplaySign"))
                 .await
                 .is_ok();
 
-            return if is_displaying_code {
+            let is_otp = driver.find(By::Id("idTxtBx_SAOTCC_OTC")).await.is_ok();
+
+            return if is_notification {
                 Ok(Ms2faStates::PhoneAppNotification)
+            } else if is_otp {
+                Ok(Ms2faStates::PhoneOTP)
             } else {
                 Ok(Ms2faStates::ChooseVerificationOption)
             };
@@ -120,17 +128,32 @@ pub async fn handler_phone_notification(driver: &WebDriver, otc: u64) -> Result<
     Ok(AuthState::ApproveAppNotif(otc))
 }
 
-pub async fn handler_awaiting_phone_code(
+pub async fn handler_phone_otp(
     driver: &WebDriver,
-    code_from_phone: Option<u64>,
+    otp: Option<String>,
 ) -> Result<AuthState, Error> {
-    dbg::log!("Waiting for code input");
-    if code_from_phone.is_none() {
+    dbg::log!("[phone_otp] Waiting for code input");
+    if otp.is_none() {
         dbg::log!(
-            "[await_phone_code] Not recived a code, should possibly return a failure state instead? Or we can still leave it to the caller"
+            "[phone_otp] Not recived a code, should possibly return a failure state instead? Or we can still leave it to the caller"
         );
-        return Ok(AuthState::AwaitingPhoneCode(None));
+        return Ok(AuthState::PhoneOTP(None));
     }
+    let otp = otp.unwrap();
 
-    Ok(AuthState::Failure)
+    //TODO improve the handling here
+    driver
+        .find(By::Id("idTxtBx_SAOTCC_OTC"))
+        .await?
+        .send_keys(otp)
+        .await?;
+
+    driver
+        .find(By::Id("idSubmit_SAOTCC_Continue"))
+        .await?
+        .click()
+        .await?;
+
+    sleep(Duration::from_secs(2)).await;
+    Ok(AuthState::AuthSpooling)
 }

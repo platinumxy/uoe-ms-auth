@@ -37,6 +37,7 @@ async fn main() {
             AuthState::ApproveAppNotif(number) => {
                 println!("Please approve the signin request for code: {}", number)
             }
+            AuthState::PhoneOTP(_) => state = AuthState::PhoneOTP(Some(get_otp())),
             _ => (),
         };
 
@@ -44,7 +45,7 @@ async fn main() {
     }
 
     if_logging!(println!("Exit state {:?}", state));
-    io::stdin().read_line(&mut String::new());
+    let _ = io::stdin().read_line(&mut String::new());
 }
 
 macro_rules! if_logging {
@@ -74,6 +75,19 @@ fn get_creds() -> (String, String) {
 
     let password = rpassword::prompt_password("Your password: ").unwrap();
     (username, password)
+}
+fn get_otp() -> String {
+    loop {
+        print!("Please enter an OTP from your microsoft authenticator app: ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+        let trimmed = input.trim().to_string();
+        if trimmed.parse::<f64>().is_ok() {
+            break trimmed;
+        }
+    }
 }
 
 async fn create_driver() -> Result<WebDriver, WebDriverError> {

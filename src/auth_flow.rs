@@ -17,7 +17,7 @@ pub enum AuthState {
     },
     AuthSpooling,
     ApproveAppNotif(u64),
-    AwaitingPhoneCode(Option<u64>),
+    PhoneOTP(Option<String>),
     Failure,
     FailureUserPassword,
     Authenticated,
@@ -38,9 +38,7 @@ pub async fn step_auth_sm<'a>(driver: &WebDriver, state: AuthState) -> Result<Au
             handler_creds_prompt(driver, username, password).await
         }
         ApproveAppNotif(code_for_phone) => handler_phone_notification(driver, code_for_phone).await,
-        AwaitingPhoneCode(code_from_phone) => {
-            handler_awaiting_phone_code(driver, code_from_phone).await
-        }
+        PhoneOTP(otp) => handler_phone_otp(driver, otp).await,
         AuthSpooling => handler_auth_spooling(driver).await,
         Failure | FailureUserPassword | Authenticated => Ok(state), // shouldn't be called with a finished state but if we are
     }
