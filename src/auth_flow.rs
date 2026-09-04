@@ -1,5 +1,8 @@
+use std::time::Duration;
+
 use crate::{dbg, if_logging};
 use thirtyfour::{By, WebDriver, error::WebDriverError};
+use tokio::time::sleep;
 
 use crate::ms_handlers::*;
 /// We manage the authentication flow as a state machine for the differnt stages that the user may
@@ -132,6 +135,7 @@ async fn handler_creds_prompt(
         ));
         return Ok(AuthState::FailureUserPassword);
     }
+    sleep(Duration::from_secs(1)).await;
 
     Ok(AuthState::AuthSpooling)
 }

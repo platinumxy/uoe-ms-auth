@@ -53,7 +53,21 @@ async fn main() {
         "Exit state {:?}                                   ",
         state
     ));
-    let _ = io::stdin().read_line(&mut String::new());
+    println!(
+        "Cookies: {}",
+        utils::cookies_from(
+            &driver,
+            vec![
+                "edadfed.ed.ac.uk",
+                "exampapers.ed.ac.uk",
+                "idp.ed.ac.uk",
+                "login.live.com",
+                "login.microsoft.com",
+                "login.microsoftonline.com"
+            ]
+        )
+        .await
+    )
 }
 
 fn get_creds() -> (String, String) {
