@@ -6,12 +6,13 @@ macro_rules! log {
         eprintln!($($arg)*)
     };
 }
-pub(crate) use log;
 
 #[cfg(not(feature = "dbg"))]
 macro_rules! log {
     ($($arg:tt)*) => {};
 }
+
+pub(crate) use log;
 
 pub async fn current_url(driver: &WebDriver) {
     println!(

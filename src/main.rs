@@ -1,21 +1,21 @@
 use std::io::{self, Write};
 
-use thirtyfour::prelude::*;
-mod auth_flow;
-mod dbg;
-mod disable_webauth;
-
+pub mod auth_flow;
+pub mod disable_webauth;
 pub mod ms_handlers;
 
+pub mod dbg;
+pub mod utils;
+
 use auth_flow::AuthState;
-use disable_webauth::get_extension_path;
+use utils::if_logging;
 
 #[tokio::main]
 async fn main() {
     if_logging!(print!(
         "Starting web-driver may take a while on first run..."
     ));
-    let driver = create_driver().await.unwrap();
+    let driver = utils::create_driver().await.unwrap();
 
     if_logging!(println!("Done"));
 
@@ -35,7 +35,12 @@ async fn main() {
                 }
             }
             AuthState::ApproveAppNotif(number) => {
-                println!("Please approve the signin request for code: {}", number)
+                print!("Please approve the signin request for code: {}\r", number); // \r quick
+                // and dirty
+                // hack to
+                // only show
+                // one msg
+                io::stdout().flush().unwrap();
             }
             AuthState::PhoneOTP(_) => state = AuthState::PhoneOTP(Some(get_otp())),
             _ => (),
@@ -44,19 +49,12 @@ async fn main() {
         state = auth_flow::step_auth_sm(&driver, state).await.unwrap();
     }
 
-    if_logging!(println!("Exit state {:?}", state));
+    if_logging!(println!(
+        "Exit state {:?}                                   ",
+        state
+    ));
     let _ = io::stdin().read_line(&mut String::new());
 }
-
-macro_rules! if_logging {
-    ($($code:tt)*) => {
-        #[cfg(not(feature = "no-logging"))]
-        {
-            $($code)*
-        }
-    };
-}
-pub(crate) use if_logging;
 
 fn get_creds() -> (String, String) {
     let username = loop {
@@ -76,6 +74,7 @@ fn get_creds() -> (String, String) {
     let password = rpassword::prompt_password("Your password: ").unwrap();
     (username, password)
 }
+
 fn get_otp() -> String {
     loop {
         print!("Please enter an OTP from your microsoft authenticator app: ");
@@ -88,27 +87,4 @@ fn get_otp() -> String {
             break trimmed;
         }
     }
-}
-
-async fn create_driver() -> Result<WebDriver, WebDriverError> {
-    let mut caps = DesiredCapabilities::chrome(); //TODO: See if we can auth find a browser to skip
-
-    let (ext_path, _guard) =
-        get_extension_path().expect("Could not create dissable webauth plugin"); // TODO
-    // remove
-    // exepct
-    dbg::log!("[init] Extension path: {}", ext_path.display());
-    caps.add_arg(&format!("--load-extension={}", ext_path.display()))?;
-
-    #[cfg(not(feature = "show-browser"))]
-    if let Err(err) = caps.set_headless() {
-        eprintln!("Could not tell driver to be headless: {}", err);
-        return Err(err);
-    }
-
-    let driver = WebDriver::managed(caps).await;
-    if let Err(err) = &driver {
-        eprintln!("Couldn't create managed web driver: {}", err);
-    }
-    driver
 }

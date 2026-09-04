@@ -48,7 +48,7 @@ pub async fn handler_auth_spooling(driver: &WebDriver) -> Result<AuthState, Erro
                 .click()
                 .await?;
             dbg::log!("[auth_spool][choose_ver_opt] Clicked PhoneAppOTP");
-            sleep(Duration::from_secs(5)).await;
+            sleep(Duration::from_secs(3)).await;
             Ok(AuthState::AuthSpooling)
         }
         PhoneAppNotification => {
