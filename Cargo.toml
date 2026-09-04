@@ -11,7 +11,7 @@ thirtyfour = "0.37.5"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "time"] }
 
 [features]
-default = [] 
+default = ["logging"] 
 dbg = []
 show-browser = []
-no-logging = []
+logging = []

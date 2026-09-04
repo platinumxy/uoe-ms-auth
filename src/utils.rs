@@ -8,7 +8,7 @@ use crate::disable_webauth::get_extension_path;
 
 macro_rules! if_logging {
     ($($code:tt)*) => {
-        #[cfg(not(feature = "no-logging"))]
+        #[cfg(feature = "logging")]
         {
             $($code)*
         }
