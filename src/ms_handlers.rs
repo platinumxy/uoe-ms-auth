@@ -26,10 +26,14 @@ pub async fn handler_auth_spooling(driver: &WebDriver) -> Result<AuthState, Erro
     match determin_2fa_state(driver).await? {
         TrustWebsite => {
             dbg::log!("[auth_spool][trust_site] trusting ed.ac.uk");
-            let button = await_with_err_log!(
-                driver.find(By::Id("idSIButton9")),
-                "Couldn't find the trust ed.ac.uk button",
-            );
+            let button = driver
+                .query(By::Id("idSIButton9"))
+                .and_clickable()
+                .wait(Duration::from_secs(10), Duration::from_millis(100))
+                .desc("trust ed.ac.uk button")
+                .first()
+                .await?;
+            sleep(Duration::from_millis(250)).await;
             await_with_err_log!(button.click(), "Couldn't click the trust ed.ac.uk button");
             driver
                 .query(By::XPath("//form[contains(@action, '/appverify')]"))
