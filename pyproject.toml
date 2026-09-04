@@ -1,0 +1,13 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "uoe-ms-auth"
+version = "0.1.0"
+description = "University of Edinburgh SAML bindings"
+requires-python = ">=3.9"
+
+[tool.maturin]
+bindings = "pyo3"
+module-name = "uoe_ms_auth"
