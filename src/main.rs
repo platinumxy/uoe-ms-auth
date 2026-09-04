@@ -15,7 +15,13 @@ async fn main() {
     if_logging!(print!(
         "Starting web-driver may take a while on first run..."
     ));
-    let driver = utils::create_driver().await.unwrap();
+    let driver = match utils::create_driver().await {
+        Ok(driver) => driver,
+        Err(error) => {
+            eprintln!("Could not create web driver: {error}");
+            return;
+        }
+    };
 
     if_logging!(println!("Done"));
 
@@ -46,7 +52,13 @@ async fn main() {
             _ => (),
         };
 
-        state = auth_flow::step_auth_sm(&driver, state).await.unwrap();
+        state = match auth_flow::step_auth_sm(&driver, state).await {
+            Ok(next_state) => next_state,
+            Err(error) => {
+                eprintln!("Authentication failed: {error}");
+                return;
+            }
+        };
     }
 
     if_logging!(println!(

@@ -31,7 +31,11 @@ pub async fn handler_auth_spooling(driver: &WebDriver) -> Result<AuthState, Erro
                 "Couldn't find the trust ed.ac.uk button",
             );
             await_with_err_log!(button.click(), "Couldn't click the trust ed.ac.uk button");
-            sleep(Duration::from_millis(250)).await; // give time for js to update
+            driver
+                .query(By::XPath("//form[contains(@action, '/appverify')]"))
+                .wait(Duration::from_secs(5), Duration::from_millis(100))
+                .not_exists()
+                .await?;
             Ok(AuthState::AuthSpooling)
         }
         ChooseVerificationOption => {
@@ -46,7 +50,12 @@ pub async fn handler_auth_spooling(driver: &WebDriver) -> Result<AuthState, Erro
                 "Couldn't click the phone notification option",
             );
             dbg::log!("[auth_spool][choose_ver_opt] Clicked PhoneAppOTP");
-            sleep(Duration::from_secs(3)).await;
+            driver
+                .query(By::Id("idRichContext_DisplaySign"))
+                .or(By::Id("idTxtBx_SAOTCC_OTC"))
+                .wait(Duration::from_secs(5), Duration::from_millis(100))
+                .first()
+                .await?;
             Ok(AuthState::AuthSpooling)
         }
         PhoneAppNotification => {
@@ -174,6 +183,5 @@ pub async fn handler_phone_otp(
     );
     await_with_err_log!(button.click(), "Couldn't click the OTP continue button");
 
-    sleep(Duration::from_millis(250)).await;
     Ok(AuthState::AuthSpooling)
 }

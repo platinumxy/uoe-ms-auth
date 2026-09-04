@@ -1,7 +1,13 @@
-use std::{future::Future, time::Duration};
+use std::{
+    future::Future,
+    time::{Duration, Instant},
+};
 
 use crate::{dbg, if_logging, utils::await_with_err_log};
-use thirtyfour::{By, WebDriver, error::WebDriverError};
+use thirtyfour::{
+    By, WebDriver,
+    error::{WebDriverError, WebDriverErrorInner},
+};
 use tokio::time::sleep;
 
 use crate::ms_handlers::*;
@@ -32,7 +38,7 @@ impl AuthState {
     }
 }
 
-pub async fn step_auth_sm<'a>(driver: &WebDriver, state: AuthState) -> Result<AuthState, Error> {
+pub async fn step_auth_sm(driver: &WebDriver, state: AuthState) -> Result<AuthState, Error> {
     use AuthState::*;
 
     match state {
@@ -55,19 +61,35 @@ where
     Fut: Future<Output = Result<AuthState, Error>>,
 {
     const MAX_ATTEMPTS: u8 = 3;
+    let mut delay = Duration::from_millis(250);
 
     for attempt in 1..=MAX_ATTEMPTS {
         match handler().await {
             Ok(state) => return Ok(state),
-            Err(_) if attempt == MAX_ATTEMPTS => return Ok(AuthState::Failure),
-            Err(_) => {
-                sleep(Duration::from_millis(250)).await;
-                continue;
+            Err(error) if attempt == MAX_ATTEMPTS || !is_retryable_error(&error) => {
+                return Err(error);
+            }
+            Err(_error) => {
+                dbg::log!("[auth_retry] attempt {} failed: {}", attempt, _error);
+                sleep(delay).await;
+                delay = delay.saturating_mul(2);
             }
         }
     }
+    Ok(AuthState::Failure) // This line is unreachable, but we need to return something to satisfy the compiler
+}
 
-    Ok(AuthState::Failure)
+fn is_retryable_error(error: &Error) -> bool {
+    matches!(
+        error.as_inner(),
+        WebDriverErrorInner::RequestFailed(_)
+            | WebDriverErrorInner::Timeout(_)
+            | WebDriverErrorInner::WebDriverTimeout(_)
+            | WebDriverErrorInner::NoSuchElement(_)
+            | WebDriverErrorInner::StaleElementReference(_)
+            | WebDriverErrorInner::ElementNotInteractable(_)
+            | WebDriverErrorInner::ElementClickIntercepted(_)
+    )
 }
 
 async fn handler_init(driver: &WebDriver) -> Result<AuthState, Error> {
@@ -93,7 +115,7 @@ async fn handler_init(driver: &WebDriver) -> Result<AuthState, Error> {
         return Ok(AuthState::Authenticated);
     }
 
-    if domain == "edadfed.ed.ac.uk" || path == "/adfs/ls/" {
+    if domain == "edadfed.ed.ac.uk" && path == "/adfs/ls/" {
         Ok(AuthState::CredsPrompt {
             username: None,
             password: None,
@@ -148,18 +170,32 @@ async fn handler_creds_prompt(
     .await?;
     dbg::log!("[creds_prmt] clicked submit");
 
-    let url = await_with_err_log!(
-        driver.current_url(),
-        "Couldn't get the current URL after submitting credentials",
-    );
-    dbg::log!("[creds_prmt] submission took us too {}", url);
-    if url.as_str() != "https://login.microsoftonline.com/login.srf" {
+    let redirected = wait_for_login_redirect(driver).await?;
+    let _url = driver.current_url().await?;
+    dbg::log!("[creds_prmt] submission took us too {}", _url);
+    if !redirected {
         if_logging!(eprintln!(
             "Unable to authenticate with provided username and password\nIf you're sure you're using the correct email and password open an issue on the GH as the API may have changed"
         ));
         return Ok(AuthState::FailureUserPassword);
     }
-    sleep(Duration::from_millis(250)).await;
 
     Ok(AuthState::AuthSpooling)
+}
+
+async fn wait_for_login_redirect(driver: &WebDriver) -> Result<bool, Error> {
+    const TIMEOUT: Duration = Duration::from_secs(10);
+    const POLL_INTERVAL: Duration = Duration::from_millis(100);
+    let deadline = Instant::now() + TIMEOUT;
+
+    loop {
+        let url = driver.current_url().await?;
+        if url.domain() == Some("login.microsoftonline.com") && url.path() == "/login.srf" {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        sleep(POLL_INTERVAL).await;
+    }
 }
