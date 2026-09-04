@@ -6,7 +6,12 @@ build-backend = "maturin"
 name = "uoe-ms-auth"
 version = "0.1.0"
 description = "University of Edinburgh SAML bindings"
+readme = "README.md"
 requires-python = ">=3.9"
+
+[project.urls]
+Repository = "https://github.com/platinumxy/uoe-ms-auth"
+Issues = "https://github.com/platinumxy/uoe-ms-auth/issues"
 
 [tool.maturin]
 bindings = "pyo3"
